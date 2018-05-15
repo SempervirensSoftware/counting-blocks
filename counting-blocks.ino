@@ -73,13 +73,12 @@ void setup() {
 
   debug("\n----------------------------");
   debug("Setup Starting");
-  debug("----------------------------");
+  debug("----------------------------\n");
 
   ledSetup();
   audioSetup();
 
-  debug("Actions:");
-  
+  debug("\nActions Test:");
   debugLedAction(testCycle[0][0]);
   debugLedAction(testCycle[1][2]);
   debugLedAction(testCycle[7][0]);
