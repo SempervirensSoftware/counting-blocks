@@ -1,7 +1,6 @@
 /////////////////////////////////////////////////////////////
 // #include
 /////////////////////////////////////////////////////////////
-#include <stdio.h>
 
 #include <SPI.h>
 #include <SD.h>
@@ -21,6 +20,8 @@ bool DEBUG_STARTUP_BEEP = false;
 #define ACTION_LIMIT        200
 #define SONG_DONE_DELAY     100000
 
+#define ARRAY_LENGTH(A) (sizeof(A) / sizeof(A[0]))
+
 /////////////////////////////////////////////////////////////
 // Operating Structs
 /////////////////////////////////////////////////////////////
@@ -29,6 +30,8 @@ struct LedSequence {
   unsigned long startTime;
   unsigned long endTime;
 };
+
+typedef LedSequence LedSequences[];
 
 struct LedAction {
   int arrayIndex;
@@ -51,7 +54,7 @@ struct PlayerState {
 /////////////////////////////////////////////////////////////
 bool initialRunComplete = false;
 
-PlayerState   _playerState;
+PlayerState m_playerState = {false, 0, 0};
 
 /////////////////////////////////////////////////////////////
 // Initialize NeoPixel
@@ -78,18 +81,10 @@ Adafruit_VS1053_FilePlayer audioPlayer =
 // Cycles
 /////////////////////////////////////////////////////////////
 LedSequence testCycle[] = {
-  {0, 2000, 3000}, {0, 4000, 5000},   
+  {0, 2000, 3000}, {0, 4000, 5000}, 
   {1, 3000, 4000}, {1, 6000, 6500}, {1, 7000, 7500}, {1, 8000, 8500},
-  {2, 2000, 3000}, 
-  {3, 2000, 3000},
-  {4, 2000, 3000},
-  {5, 2000, 3000},
-  {6, 2000, 3000},
-  {7, 1234, 5324},
-  {8, 2000, 3000},
-  {9, 2000, 3000},
+  {2, 3000, 4000}
 };
-
 
 /////////////////////////////////////////////////////////////
 // Setup
@@ -105,23 +100,43 @@ void setup() {
   debug("----------------------------\n");
 
   ledSetup();
-  audioSetup();
+//  audioSetup();
 
   debug("\n----------------------------");
   debug("Setup Completed Successfully");
   debug("----------------------------");
 }
 
-void play(String filename, LedSequence sequences[], unsigned long currentTime) {
-  loadPlayerWithSequence(_playerState, sequences);
+/////////////////////////////////////////////////////////////
+// Loop
+/////////////////////////////////////////////////////////////
 
-  playTrack(filename);
-  _playerState.startTime = currentTime;
-  _playerState.isPlaying = true;
+void loop() {
+  unsigned long currentMillis = millis();
+
+  if (!m_playerState.isPlaying) {
+    play("12RAP.MP3", testCycle, ARRAY_LENGTH(testCycle), currentMillis); 
+  }
+  
+  updateProgress(currentMillis);
+  
+  delay(300);
 }
 
-void loadPlayerWithSequence(PlayerState playerState, LedSequence sequences[]) {
-  int actionCount = sizeof(sequences);
+/////////////////////////////////////////////////////////////
+// Player Operations
+/////////////////////////////////////////////////////////////
+
+void play(String filename, LedSequence *sequences, int sequenceCount, unsigned long currentTime) {
+  debug((String) "Playing " + filename + " with " + sequenceCount + " sequences");
+  loadPlayerWithSequence(sequences, sequenceCount);
+
+//  playTrack(filename);
+  m_playerState.startTime = currentTime;
+  m_playerState.isPlaying = true;
+}
+
+void loadPlayerWithSequence(LedSequence sequences[], int actionCount) {
   if (actionCount > ACTION_LIMIT) {
     debug("\n\n----------------------");
     debug("WARNING: You have exceeded the total action limit, it's probably fine to bump up the ACTION_LIMIT constant");
@@ -131,24 +146,26 @@ void loadPlayerWithSequence(PlayerState playerState, LedSequence sequences[]) {
     actionCount = ACTION_LIMIT;
   }
 
-  resetPlayer(playerState);
-  playerState.actionCount = actionCount;
-  
+  debug((String) "Loading Sequences: " + actionCount);
+
+  resetPlayer();
+  m_playerState.actionCount = actionCount;
+    
   for (int i=0; i<actionCount; i++) {
-    playerState.onActions[i] = {sequences[i].arrayIndex, sequences[i].startTime};
-    playerState.offActions[i] = {sequences[i].arrayIndex, sequences[i].endTime};
+    m_playerState.onActions[i] = {sequences[i].arrayIndex, sequences[i].startTime};
+    m_playerState.offActions[i] = {sequences[i].arrayIndex, sequences[i].endTime};
   }
 
-  sortLedActions(playerState.onActions, actionCount);
-  sortLedActions(playerState.offActions, actionCount);
+  sortLedActions(m_playerState.onActions, actionCount);
+  sortLedActions(m_playerState.offActions, actionCount);
 }
 
-void resetPlayer(PlayerState playerState) {
-  playerState.isPlaying = false;
-  playerState.startTime = 0;
-  playerState.actionCount = 0;
-  playerState.onIndex = 0;
-  playerState.offIndex = 0;
+void resetPlayer() {
+  m_playerState.isPlaying = false;
+  m_playerState.startTime = 0;
+  m_playerState.actionCount = 0;
+  m_playerState.onIndex = 0;
+  m_playerState.offIndex = 0;
 }
 
 void sortLedActions(LedAction actions[], int count) {
@@ -162,21 +179,6 @@ void sortLedActions(LedAction actions[], int count) {
 }
 
 /////////////////////////////////////////////////////////////
-// Loop
-/////////////////////////////////////////////////////////////
-
-void loop() {
-  unsigned long currentMillis = millis();
-
-  if (!_playerState.isPlaying) {
-    play((String)"12RAP.mp3", testCycle, currentMillis); 
-  }
-  
-  updateProgress(_playerState, currentMillis);
-}
-
-
-/////////////////////////////////////////////////////////////
 // Logic
 /////////////////////////////////////////////////////////////
 
@@ -185,33 +187,37 @@ void playTrack(String trackName) {
 }
 
 
-void updateProgress(PlayerState playerState, unsigned long currentTime) {
-  if (!playerState.isPlaying) {
+void updateProgress(unsigned long currentTime) {
+  if (!m_playerState.isPlaying || m_playerState.actionCount == 0) {
     return;
-  } else if (playerState.onIndex >= playerState.actionCount && playerState.offIndex >= playerState.actionCount) {
-    playerState.isPlaying = false;
-    delay(SONG_DONE_DELAY);
+  } else if (m_playerState.onIndex >= m_playerState.actionCount && m_playerState.offIndex >= m_playerState.actionCount) {
+    m_playerState.isPlaying = false;
+    debug((String)"Song finished. Pausing for: " + SONG_DONE_DELAY + "ms");
+    delay(SONG_DONE_DELAY);    
     return;
   }
   
   bool updateNeeded = false;
-  unsigned long relativeTime = currentTime - playerState.startTime;
+  unsigned long relativeTime = currentTime - m_playerState.startTime;
   
-  while (playerState.onIndex < playerState.actionCount && playerState.onActions[playerState.onIndex].actionTime <= relativeTime) {
-    int arrayIndex = playerState.onActions[playerState.onIndex].arrayIndex;
+  while (m_playerState.onIndex < m_playerState.actionCount && m_playerState.onActions[m_playerState.onIndex].actionTime <= relativeTime) {
+    int arrayIndex = m_playerState.onActions[m_playerState.onIndex].arrayIndex;
+    debug((String) "ON: " + arrayIndex);
     ledStrip.setPixelColor(arrayIndex, 0, 255, 255);
-    playerState.onIndex += 1;
+    m_playerState.onIndex += 1;
     updateNeeded = true;
   }
 
-  while (playerState.offIndex < playerState.actionCount && playerState.offActions[playerState.offIndex].actionTime <= relativeTime) {
-    int arrayIndex = playerState.onActions[playerState.onIndex].arrayIndex;
+  while (m_playerState.offIndex < m_playerState.actionCount && m_playerState.offActions[m_playerState.offIndex].actionTime <= relativeTime) {
+    int arrayIndex = m_playerState.offActions[m_playerState.offIndex].arrayIndex;
+    debug((String) "OFF: " + arrayIndex);
     ledStrip.setPixelColor(arrayIndex, 0, 0, 0);
-    playerState.offIndex += 1;
+    m_playerState.offIndex += 1;
     updateNeeded = true;
   }
 
   if (updateNeeded) {
+    debug("...");
     ledStrip.show(); 
   } 
 }
@@ -255,7 +261,6 @@ void audioSetup() {
     audioPlayer.sineTest(0x44, 500);    // Make a tone to indicate VS1053 is working
   }
 }
-
 
 void debug(String message) {
   if (DEBUG) {
