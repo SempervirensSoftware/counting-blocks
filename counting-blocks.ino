@@ -11,16 +11,21 @@
 /////////////////////////////////////////////////////////////
 // Constants
 /////////////////////////////////////////////////////////////
-bool DEBUG = true;
-bool DEBUG_STARTUP_BEEP = false;
+#define DEBUG_LOG           true
+#define DEBUG_SILENCE       false
+#define DEBUG_STARTUP_BEEP  true
+#define DEBUG_STARTUP_FLASH true
 
 #define VOLUME              100   // 0 (loud) -> 10 (quiet)
 #define BRIGHTNESS          64    // 0->255
-#define NUMBER_BLOCK_COUNT  10    
+#define NUMBER_BLOCK_COUNT  12
+#define NUMBER_BLOCK_PIXELS 3
 #define ACTION_LIMIT        200
-#define SONG_DONE_DELAY     100000
+#define SONG_DONE_DELAY     15000
 
 #define ARRAY_LENGTH(A) (sizeof(A) / sizeof(A[0]))
+
+String NO_AUDIO_TRACK = "||";
 
 /////////////////////////////////////////////////////////////
 // Operating Structs
@@ -39,9 +44,10 @@ struct LedAction {
 };
 
 struct PlayerState {
-  bool  isPlaying;
+  bool  isPlaying;  
   int   actionCount;
   unsigned long startTime;
+  bool  loadingShown;
   
   int         onIndex;
   LedAction   onActions[ACTION_LIMIT];
@@ -52,15 +58,16 @@ struct PlayerState {
 /////////////////////////////////////////////////////////////
 // State Variables
 /////////////////////////////////////////////////////////////
-bool initialRunComplete = false;
 
-PlayerState m_playerState = {false, 0, 0};
+bool m_displayLoading = false;
+
+PlayerState m_playerState = {false, 0, 0, false};
 
 /////////////////////////////////////////////////////////////
 // Initialize NeoPixel
 /////////////////////////////////////////////////////////////
 #define PIN_ONBOARD_LED   0
-#define PIN_LED_ARRAY     14
+#define PIN_LED_ARRAY     15
 #define LED_COUNT         4
 
 Adafruit_NeoPixel ledStrip = Adafruit_NeoPixel(LED_COUNT, PIN_LED_ARRAY);
@@ -80,10 +87,20 @@ Adafruit_VS1053_FilePlayer audioPlayer =
 /////////////////////////////////////////////////////////////
 // Cycles
 /////////////////////////////////////////////////////////////
+LedSequence loadingFlash[] = {
+  {0,0,200}, {0,400,600}, {0,800,1000}
+};
+
 LedSequence testCycle[] = {
-  {0, 2000, 3000}, {0, 4000, 5000}, 
-  {1, 3000, 4000}, {1, 6000, 6500}, {1, 7000, 7500}, {1, 8000, 8500},
-  {2, 3000, 4000}
+  {0, 23, 216}, {1, 223, 417}, {2, 419, 651}, {3, 651, 968} //, 
+//  {4, 968, 1268}, {5, 1300, 1600}, {6, 1600, 1900}, {7, 1900, 2200},
+//  {8, 2200, 2500}, {9, 2500, 2800}, {10, 2800, 3100}, {11, 3100, 3400}
+};
+
+int ledMaplogicalToPhysical[NUMBER_BLOCK_COUNT][NUMBER_BLOCK_PIXELS] = {
+  {0},{1},{2},{3,2,1},
+  {2},{1},{0,1,2},{1},
+  {2},{3,2,1},{2},{1}
 };
 
 /////////////////////////////////////////////////////////////
@@ -91,7 +108,7 @@ LedSequence testCycle[] = {
 /////////////////////////////////////////////////////////////
 
 void setup() {
-  if (DEBUG) {
+  if (DEBUG_LOG) {
     Serial.begin(115200);
   }
 
@@ -100,7 +117,12 @@ void setup() {
   debug("----------------------------\n");
 
   ledSetup();
-//  audioSetup();
+  if (!DEBUG_SILENCE) {
+    audioSetup();
+  }
+
+  // Setup for an initial loading flash
+  if (DEBUG_STARTUP_FLASH) { m_displayLoading = true; }
 
   debug("\n----------------------------");
   debug("Setup Completed Successfully");
@@ -115,12 +137,16 @@ void loop() {
   unsigned long currentMillis = millis();
 
   if (!m_playerState.isPlaying) {
-    play("12RAP.MP3", testCycle, ARRAY_LENGTH(testCycle), currentMillis); 
+    if (m_displayLoading) {
+      play(NO_AUDIO_TRACK, loadingFlash, ARRAY_LENGTH(loadingFlash), currentMillis);  
+      m_displayLoading = false;
+    } else {
+      play("SSSH.MP3", testCycle, ARRAY_LENGTH(testCycle), currentMillis);
+      if (DEBUG_STARTUP_FLASH) { m_displayLoading = true; }
+    }
   }
   
   updateProgress(currentMillis);
-  
-  delay(300);
 }
 
 /////////////////////////////////////////////////////////////
@@ -131,7 +157,10 @@ void play(String filename, LedSequence *sequences, int sequenceCount, unsigned l
   debug((String) "Playing " + filename + " with " + sequenceCount + " sequences");
   loadPlayerWithSequence(sequences, sequenceCount);
 
-//  playTrack(filename);
+  if (filename != NO_AUDIO_TRACK && !DEBUG_SILENCE) {
+    playTrack(filename);    
+  }
+
   m_playerState.startTime = currentTime;
   m_playerState.isPlaying = true;
 }
@@ -166,6 +195,7 @@ void resetPlayer() {
   m_playerState.actionCount = 0;
   m_playerState.onIndex = 0;
   m_playerState.offIndex = 0;
+  m_playerState.loadingShown = false;
 }
 
 void sortLedActions(LedAction actions[], int count) {
@@ -193,7 +223,9 @@ void updateProgress(unsigned long currentTime) {
   } else if (m_playerState.onIndex >= m_playerState.actionCount && m_playerState.offIndex >= m_playerState.actionCount) {
     m_playerState.isPlaying = false;
     debug((String)"Song finished. Pausing for: " + SONG_DONE_DELAY + "ms");
-    delay(SONG_DONE_DELAY);    
+    if (m_displayLoading) {
+      delay(SONG_DONE_DELAY);  
+    }
     return;
   }
   
@@ -230,7 +262,7 @@ void ledSetup() {
 
 void audioSetup() {
   // Wait for serial port to be opened, remove this line for 'standalone' operation
-  if (DEBUG) {
+  if (DEBUG_LOG) {
     while (!Serial) {
       delay(1);
     }
@@ -263,13 +295,13 @@ void audioSetup() {
 }
 
 void debug(String message) {
-  if (DEBUG) {
+  if (DEBUG_LOG) {
     Serial.println(message);
   }
 }
 
 void debugInline(String message) {
-  if (DEBUG) {
+  if (DEBUG_LOG) {
     Serial.print(message);
   }
 }
