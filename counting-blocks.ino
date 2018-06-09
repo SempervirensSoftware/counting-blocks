@@ -19,9 +19,13 @@
 #define VOLUME              100   // 0 (loud) -> 10 (quiet)
 #define BRIGHTNESS          64    // 0->255
 #define NUMBER_BLOCK_COUNT  12
-#define NUMBER_BLOCK_PIXELS 3
+#define PIXELS_PER_BLOCK    3
 #define ACTION_LIMIT        200
 #define SONG_DONE_DELAY     15000
+
+#define PIN_ONBOARD_LED     0
+#define PIN_LED_ARRAY       4
+#define LED_COUNT           4
 
 #define ARRAY_LENGTH(A) (sizeof(A) / sizeof(A[0]))
 
@@ -66,9 +70,6 @@ PlayerState m_playerState = {false, 0, 0, false};
 /////////////////////////////////////////////////////////////
 // Initialize NeoPixel
 /////////////////////////////////////////////////////////////
-#define PIN_ONBOARD_LED   0
-#define PIN_LED_ARRAY     15
-#define LED_COUNT         4
 
 Adafruit_NeoPixel ledStrip = Adafruit_NeoPixel(LED_COUNT, PIN_LED_ARRAY);
 
@@ -97,10 +98,14 @@ LedSequence testCycle[] = {
 //  {8, 2200, 2500}, {9, 2500, 2800}, {10, 2800, 3100}, {11, 3100, 3400}
 };
 
-int ledMaplogicalToPhysical[NUMBER_BLOCK_COUNT][NUMBER_BLOCK_PIXELS] = {
-  {0},{1},{2},{3,2,1},
-  {2},{1},{0,1,2},{1},
-  {2},{3,2,1},{2},{1}
+
+// HACK: Inflate all pixels by the adjustment factor below
+//       workaround so I can identify empty values from intentional zeros
+#define MAGIC_LED_ADJUSTMENT     1000
+int ledMapLogicalToPhysical[NUMBER_BLOCK_COUNT][PIXELS_PER_BLOCK] = {
+  {1000},{1001},{1002},{1003,1002,1001},
+  {1002},{1001},{1000,1001,1002},{1001},
+  {1002},{1003,1002,1001},{1002},{1001}
 };
 
 /////////////////////////////////////////////////////////////
@@ -213,7 +218,7 @@ void sortLedActions(LedAction actions[], int count) {
 /////////////////////////////////////////////////////////////
 
 void playTrack(String trackName) {
-  audioPlayer.startPlayingFile(trackName.c_str());
+ audioPlayer.startPlayingFile(trackName.c_str());
 }
 
 
@@ -231,19 +236,33 @@ void updateProgress(unsigned long currentTime) {
   
   bool updateNeeded = false;
   unsigned long relativeTime = currentTime - m_playerState.startTime;
-  
+
   while (m_playerState.onIndex < m_playerState.actionCount && m_playerState.onActions[m_playerState.onIndex].actionTime <= relativeTime) {
-    int arrayIndex = m_playerState.onActions[m_playerState.onIndex].arrayIndex;
-    debug((String) "ON: " + arrayIndex);
-    ledStrip.setPixelColor(arrayIndex, 0, 255, 255);
+    int blockIndex = m_playerState.onActions[m_playerState.onIndex].arrayIndex;
+    debug((String) "ON: " + blockIndex);
+    
+    for (int i=0; i<PIXELS_PER_BLOCK; i++) {
+      int pixelIndex = ledMapLogicalToPhysical[blockIndex][i] - MAGIC_LED_ADJUSTMENT;
+      if (pixelIndex >= 0) {
+        ledStrip.setPixelColor(pixelIndex, 0, 64, 64);
+      }
+    }
+
     m_playerState.onIndex += 1;
     updateNeeded = true;
   }
 
   while (m_playerState.offIndex < m_playerState.actionCount && m_playerState.offActions[m_playerState.offIndex].actionTime <= relativeTime) {
-    int arrayIndex = m_playerState.offActions[m_playerState.offIndex].arrayIndex;
-    debug((String) "OFF: " + arrayIndex);
-    ledStrip.setPixelColor(arrayIndex, 0, 0, 0);
+    int blockIndex = m_playerState.offActions[m_playerState.offIndex].arrayIndex;
+    debug((String) "OFF: " + blockIndex);
+    
+    for (int i=0; i<PIXELS_PER_BLOCK; i++) {
+      int pixelIndex = ledMapLogicalToPhysical[blockIndex][i] - MAGIC_LED_ADJUSTMENT;
+      if (pixelIndex >= 0) {
+        ledStrip.setPixelColor(pixelIndex, 0, 0, 0);
+      }
+    }
+    
     m_playerState.offIndex += 1;
     updateNeeded = true;
   }
