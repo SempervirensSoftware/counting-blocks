@@ -92,10 +92,10 @@ LedSequence loadingFlash[] = {
   {0,0,200}, {0,400,600}, {0,800,1000}
 };
 
-LedSequence testCycle[] = {
-  {0, 23, 216}, {1, 223, 417}, {2, 419, 651}, {3, 651, 968} //, 
-//  {4, 968, 1268}, {5, 1300, 1600}, {6, 1600, 1900}, {7, 1900, 2200},
-//  {8, 2200, 2500}, {9, 2500, 2800}, {10, 2800, 3100}, {11, 3100, 3400}
+LedSequence seq12Rap[] = {
+  {0, 23, 216}, {1, 223, 417}, {2, 419, 651}, {3, 651, 968}, 
+  {4, 968, 1300}, {5, 1325, 1558}, {6, 1558, 1836}, {7, 1890, 2106},
+  {8, 2106, 2411}, {9, 2432, 2762}, {10, 2863, 3339}, {11, 3354, 3665}
 };
 
 
@@ -103,9 +103,9 @@ LedSequence testCycle[] = {
 //       workaround so I can identify empty values from intentional zeros
 #define MAGIC_LED_ADJUSTMENT     1000
 int ledMapLogicalToPhysical[NUMBER_BLOCK_COUNT][PIXELS_PER_BLOCK] = {
-  {1000},{1001},{1002},{1003,1002,1001},
-  {1002},{1001},{1000,1001,1002},{1001},
-  {1002},{1003,1002,1001},{1002},{1001}
+  {1000},{1001},{1002},{1003},
+  {1002},{1001},{1000},{1001},
+  {1002},{1003},{1002},{1001}
 };
 
 /////////////////////////////////////////////////////////////
@@ -146,7 +146,7 @@ void loop() {
       play(NO_AUDIO_TRACK, loadingFlash, ARRAY_LENGTH(loadingFlash), currentMillis);  
       m_displayLoading = false;
     } else {
-      play("SSSH.MP3", testCycle, ARRAY_LENGTH(testCycle), currentMillis);
+      play("12RAP.MP3", seq12Rap, ARRAY_LENGTH(seq12Rap), currentMillis);
       if (DEBUG_STARTUP_FLASH) { m_displayLoading = true; }
     }
   }
@@ -158,8 +158,7 @@ void loop() {
 // Player Operations
 /////////////////////////////////////////////////////////////
 
-void play(String filename, LedSequence *sequences, int sequenceCount, unsigned long currentTime) {
-  debug((String) "Playing " + filename + " with " + sequenceCount + " sequences");
+void play(String filename, LedSequence *sequences, int sequenceCount, unsigned long currentTime) {  
   loadPlayerWithSequence(sequences, sequenceCount);
 
   if (filename != NO_AUDIO_TRACK && !DEBUG_SILENCE) {
@@ -168,6 +167,8 @@ void play(String filename, LedSequence *sequences, int sequenceCount, unsigned l
 
   m_playerState.startTime = currentTime;
   m_playerState.isPlaying = true;
+
+  debug((String) "Playing " + filename + " with " + sequenceCount + " sequences\n");
 }
 
 void loadPlayerWithSequence(LedSequence sequences[], int actionCount) {
@@ -179,8 +180,6 @@ void loadPlayerWithSequence(LedSequence sequences[], int actionCount) {
 
     actionCount = ACTION_LIMIT;
   }
-
-  debug((String) "Loading Sequences: " + actionCount);
 
   resetPlayer();
   m_playerState.actionCount = actionCount;
@@ -237,29 +236,15 @@ void updateProgress(unsigned long currentTime) {
   bool updateNeeded = false;
   unsigned long relativeTime = currentTime - m_playerState.startTime;
 
-  while (m_playerState.onIndex < m_playerState.actionCount && m_playerState.onActions[m_playerState.onIndex].actionTime <= relativeTime) {
-    int blockIndex = m_playerState.onActions[m_playerState.onIndex].arrayIndex;
-    debug((String) "ON: " + blockIndex);
-    
-    for (int i=0; i<PIXELS_PER_BLOCK; i++) {
-      int pixelIndex = ledMapLogicalToPhysical[blockIndex][i] - MAGIC_LED_ADJUSTMENT;
-      if (pixelIndex >= 0) {
-        ledStrip.setPixelColor(pixelIndex, 0, 64, 64);
-      }
-    }
-
-    m_playerState.onIndex += 1;
-    updateNeeded = true;
-  }
-
+  // Turn OFF LEDs
   while (m_playerState.offIndex < m_playerState.actionCount && m_playerState.offActions[m_playerState.offIndex].actionTime <= relativeTime) {
     int blockIndex = m_playerState.offActions[m_playerState.offIndex].arrayIndex;
-    debug((String) "OFF: " + blockIndex);
     
     for (int i=0; i<PIXELS_PER_BLOCK; i++) {
       int pixelIndex = ledMapLogicalToPhysical[blockIndex][i] - MAGIC_LED_ADJUSTMENT;
       if (pixelIndex >= 0) {
         ledStrip.setPixelColor(pixelIndex, 0, 0, 0);
+        debug((String) "OFF:   [" + blockIndex + "] " + pixelIndex);
       }
     }
     
@@ -267,9 +252,28 @@ void updateProgress(unsigned long currentTime) {
     updateNeeded = true;
   }
 
+
+  // Turn ON LEDs
+  while (m_playerState.onIndex < m_playerState.actionCount && m_playerState.onActions[m_playerState.onIndex].actionTime <= relativeTime) {
+    int blockIndex = m_playerState.onActions[m_playerState.onIndex].arrayIndex;
+    
+    for (int i=0; i<PIXELS_PER_BLOCK; i++) {
+      int pixelIndex = ledMapLogicalToPhysical[blockIndex][i] - MAGIC_LED_ADJUSTMENT;
+      if (pixelIndex >= 0) {
+        ledStrip.setPixelColor(pixelIndex, 0, 64, 64);
+        debug((String) "ON:    [" + blockIndex + "] " + pixelIndex);
+      }
+    }
+
+    m_playerState.onIndex += 1;
+    updateNeeded = true;
+  }
+
   if (updateNeeded) {
-    debug("...");
     ledStrip.show(); 
+    
+    debug((String) "SHOWN: " + relativeTime + "ms");
+    debug("...\n");
   } 
 }
 
